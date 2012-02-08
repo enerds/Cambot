@@ -28,7 +28,6 @@ int8_t nspeedr = 0;
 void timer1_init(void);
 void set_clockdiv(uint8_t div);
 void set_speed(int8_t speed_left, int8_t speed_right);
-int8_t speed_to_ticks(int8_t speed);
 
 /**************** DEFINES **********************/
 #define RU 37.699 // Radumfang
@@ -115,28 +114,6 @@ ISR(TIMER3_COMPA_vect){
 }
 
 /*************** HELPER FUNCTIONS ********************/
-int8_t speed_to_ticks(int8_t speed){
-    int8_t speedlist[17];
-    speedlist[0] = 0;
-    speedlist[1] = 0;
-    speedlist[2] = 5;
-    speedlist[3] = 25;
-    speedlist[4] = 45;
-    speedlist[5] = 70;
-    speedlist[6] = 90;
-    speedlist[7] = 100;
-    speedlist[8] = 120;
-    speedlist[9] = 135;
-    speedlist[10] = 140;
-    speedlist[11] = 155;
-    speedlist[12] = 160;
-    speedlist[13] = 170;
-    speedlist[14] = 177;
-    speedlist[15] = 180;
-    speedlist[16] = 185;
-    return speedlist[speed];
-}
-
 void timer1_init(void){
     //Modus und Vorteiler wählen (Phase Correct PWM und Vorteiler 1)
     TCCR1A |= (1<<COM1A1)|(1<<COM1B1)|(1<<COM1C1)|(1<<WGM11);
@@ -155,6 +132,8 @@ void set_clockdiv(uint8_t div){
     CLKPR = div;
 }
 
+
+// TO BE REPLACED !
 void set_speed(int8_t speed_left, int8_t speed_right){
     if(speed_left > 16) speed_left = 16;
     if(speed_left < 0) speed_left = 0;
