@@ -24,10 +24,16 @@ int8_t speedl = 0;
 int8_t speedr = 0;
 int8_t nspeedl = 0;
 int8_t nspeedr = 0;
+
+// sum of errors for i-controller
+uint16_t esuml = 0;
+uint16_t esumr = 0;
+
 /**************** Forward Decs *****************/
 void timer1_init(void);
 void set_clockdiv(uint8_t div);
 void set_speed(int8_t speed_left, int8_t speed_right);
+uint16_t pi(float kp, float ki, int error, float ta, uint16_t esum);
 
 /**************** DEFINES **********************/
 #define RU 37.699 // Radumfang
@@ -41,11 +47,14 @@ void set_speed(int8_t speed_left, int8_t speed_right);
 #define STEPS 16 // Anzahl Steps für Speed
 #define SSTEP 65535 / STEPS // One Speedstep in bits
 
+#define TIMESPAN 10
+float timespan = 10.0f;
+
+
 /*************** INTERRUPTS *************************/
 // left wheel
 ISR( INT0_vect ){
     lcount++;
-    // TODO: remove, only test, set led high
 }
 
 // right wheel
@@ -57,7 +66,7 @@ ISR( INT1_vect){
 ISR(TIMER3_COMPA_vect){
     millis++;
     // count ticks for 10 ms for controller
-    if(millis % 10 == 0){
+    if(millis % TIMESPAN == 0){
         cli();
             tpmsl = lcount;
             lcount = 0;
@@ -69,28 +78,14 @@ ISR(TIMER3_COMPA_vect){
             ttr += tpmsr;
 
             // desired ticks per 10ms
-            int8_t sollticksl = 8;
-            int8_t sollticksr = 8;
+            int8_t sollticksl = 10;
+            int8_t sollticksr = 10;
 
-            // calculate additions for speeds
-            float diff1 = (sollticksl - tpmsl) / 8.0f; // diff durch max. ticks pro intervall
-            float diff2 = (sollticksr - tpmsr) / 8.0f;
-            
-            if( sollticksl*4095 + 65535 * diff1 > 65535){
-                OCR1A = 65535;
-            }else if(sollticksl*4095 + 65535 * diff1 < 0){
-                OCR1A = 0;
-            }else{
-                OCR1A = sollticksl*4095 + 65535 * diff1;
-            }
+            esuml += (sollticksl - tpmsl);
+            esumr += (sollticksr - tpmsr);
 
-            if(sollticksr*4095 + 65535 * diff2 > 65535){
-                OCR1B = 65535;
-            }else if(sollticksr*4095 + 65535 * diff2 < 0){
-                OCR1B = 0;
-            }else{
-                OCR1B = sollticksr*4095 + 65535 * diff2;
-            }
+            OCR1A = pi(0.5, 0.5, (sollticksl - tpmsl), (1/(timespan*10)), esuml);
+            OCR1B = pi(0.5, 0.5, (sollticksr - tpmsr), (1/(timespan*10)), esumr);
     }
 
     // show time
@@ -114,6 +109,16 @@ ISR(TIMER3_COMPA_vect){
 }
 
 /*************** HELPER FUNCTIONS ********************/
+uint16_t pi(float kp, float ki, int error, float ta, uint16_t esum){
+    uint8_t corrected = kp * error + ki * ta * esum;
+    uint16_t new_value = corrected * 1024 * (10.0f/timespan);
+
+    if(new_value > 65535) new_value = 65535;
+    if(new_value < 0) new_value = 0;
+
+    return new_value;
+}
+
 void timer1_init(void){
     //Modus und Vorteiler wählen (Phase Correct PWM und Vorteiler 1)
     TCCR1A |= (1<<COM1A1)|(1<<COM1B1)|(1<<COM1C1)|(1<<WGM11);
@@ -200,9 +205,6 @@ int main (void){
     LCDcursorOFF();
     LCDclr();
     LCDstring("Cambot v0.2", 11);
-    LCDGotoXY(0, 1);
-    LCDstring("Zweite Zeile", 12);
-
 
     DDRB = 0xFF; // ausgang
     
@@ -228,52 +230,20 @@ int main (void){
     // Interrupt starten
     sei();
 
-
     set_clockdiv(0);
     timer1_init();
 
     uint16_t shotcount = 0;
 
     while (1){
-        // drei mal blinken bevor wir losfahren
-        PORTB |= (1 << 0); //set pin 0 on port B high
-        _delay_ms(500);
-        PORTB &= ~(1 << 0); //set pin 0 on port B low
-        _delay_ms(500);
-        PORTB |= (1 << 0); //set pin 0 on port B high
-        _delay_ms(500);
-        PORTB &= ~(1 << 0); //set pin 0 on port B low
-        _delay_ms(500);
-        PORTB |= (1 << 0); //set pin 0 on port B high
-        _delay_ms(500);
-        PORTB &= ~(1 << 0); //set pin 0 on port B low
-        _delay_ms(500);
-
         set_direction(1);
         speedl = 10;
         speedr = 10;
-        //set_speed(speedl, speedr);
+
         OCR1A = 50000;
         OCR1B = 50000;
 
         char string[16];
-
-        // let the motors run on each level
-        // to measure ticks per speedvalue
-        /*
-        while(1){
-            uint8_t x=0;
-            for(x=0;x<17;x++){
-                set_speed(x,x);
-                LCDGotoXY(0, 0);
-                snprintf(string, 16, "SL: %u", x);
-                LCDstring("                ", 16);
-                LCDGotoXY(0, 0);
-                LCDstring(string, strlen(string));
-                _delay_ms(10000);
-            }
-        }
-        */
 
         while(1){
             // controller for the wheels
@@ -282,9 +252,7 @@ int main (void){
                 uint16_t mytpmsr = tpmsr;
             sei();
 
-
-
-            // get total ticks left
+            // get total ticks
             cli();
                 uint16_t my_ttl = ttl;
             sei();
